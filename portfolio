@@ -1,0 +1,71 @@
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+
+# Step 1: Data Collection and Preprocessing
+
+tickers = ['RELIANCE.NS', 'TCS.NS', 'INFY.NS', 'HDFCBANK.NS', 'ICICIBANK.NS']
+
+print("Downloading stock data...")
+data = yf.download(tickers, start='2010-01-01', end='2023-08-01')['Adj Close']
+print("Stock data downloaded.")
+
+# Calculate daily returns
+returns = data.pct_change().dropna()
+
+# Step 2: Implement a Momentum-Based Strategy
+
+# Calculate the 30-day momentum
+momentum = returns.rolling(window=30).mean().dropna()
+
+# Select top 3 performing stocks based on momentum
+selected_tickers = momentum.iloc[-1].nlargest(3).index
+
+# Filter the returns for the selected tickers
+selected_returns = returns[selected_tickers]
+
+# Step 3: Apply Modern Portfolio Theory (MPT)
+
+# Calculate expected returns and covariance matrix
+expected_returns = selected_returns.mean() * 252
+cov_matrix = selected_returns.cov() * 252
+
+# Define the objective function (negative Sharpe Ratio)
+def objective(weights):
+    portfolio_return = np.sum(expected_returns * weights)
+    portfolio_std = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
+    sharpe_ratio = portfolio_return / portfolio_std
+    return -sharpe_ratio  # We minimize the negative Sharpe Ratio
+
+# Constraints and bounds
+constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})  # Weights must sum to 1
+bounds = tuple((0, 1) for _ in range(len(selected_tickers)))
+
+# Initial guess
+init_guess = len(selected_tickers) * [1. / len(selected_tickers)]
+
+# Optimize
+optimal_weights = minimize(objective, init_guess, method='SLSQP', bounds=bounds, constraints=constraints).x
+
+# Step 4: Backtest the Strategy
+
+# Calculate the portfolio returns
+portfolio_returns = selected_returns.dot(optimal_weights)
+
+# Calculate cumulative returns
+cumulative_returns = (1 + portfolio_returns).cumprod() - 1
+
+# Step 5: Evaluate the Strategy
+
+# Calculate the Sharpe Ratio
+sharpe_ratio = portfolio_returns.mean() / portfolio_returns.std() * np.sqrt(252)
+
+print(f"Optimal Weights: {optimal_weights}")
+print(f"Sharpe Ratio: {sharpe_ratio}")
+print(f"Cumulative Return: {cumulative_returns.iloc[-1]}")
+
+# Plot the cumulative returns
+cumulative_returns.plot(title="Cumulative Returns of Optimized Portfolio")
+plt.show()
